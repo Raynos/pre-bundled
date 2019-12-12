@@ -84,7 +84,40 @@ async function main () {
     version = pkg.version
   }
 
-  exec(`git checkout v${version}`, {
+  const tagList = exec(`git tag -l`, {
+    cwd: gitTargetDir
+  }).toString('utf8')
+
+  let checkoutTarget = `v${version}`
+
+  /**
+   * The author of ${module} does not tag their git tags ...
+   */
+  if (tagList.indexOf(`v${version}`) === -1) {
+    const gitLog = exec(
+      `git log --no-decorate --patch package.json`, {
+        cwd: gitTargetDir
+      }
+    ).toString('utf8')
+
+    const lines = gitLog.split('\n')
+    const lineIndex = lines.findIndex((line) => {
+      return line.includes(`+  "version": "${version}",`)
+    })
+    console.log('found lineIndex', lineIndex)
+
+    for (let i = lineIndex; i >= 0; i--) {
+      const logLine = lines[i].trim()
+
+      if (logLine.match(/^commit [0-9a-f]{40}$/)) {
+        const commitSha = logLine.slice(7, logLine.length)
+        checkoutTarget = commitSha
+        break
+      }
+    }
+  }
+
+  exec(`git checkout ${checkoutTarget}`, {
     cwd: gitTargetDir
   })
   exec(`git checkout -b pre-bundled-${version}`, {
@@ -100,6 +133,12 @@ async function main () {
   pkg.name = `@pre-bundled/${uriSafeModuleName}`
   pkg.bundledDependencies = Object.keys(oldDependencies)
   pkg.dependencies = {}
+
+  if (Object.keys(oldDependencies).length === 0) {
+    console.error(`This module ${moduleToBundle} has no deps`)
+    console.error('Like literally dependencies is {}')
+    return process.exit(1)
+  }
 
   console.log(`Running npm install ${gitTargetDir}`)
   exec(`npm install --loglevel notice --prod`, {
