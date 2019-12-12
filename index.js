@@ -146,6 +146,16 @@ async function main () {
     cwd: gitTargetDir
   })
 
+  /**
+   * TODO:
+   *  - Run `npm pack --dry-run 2>&1` to identify all LOCAL js
+   *      files.
+   *  - Move all those files into a `pre-bundled/` folder
+   *  - Move `node_modules` into `pre-bundled/node_modules`
+   *  - Rewrite `pkg.main`
+   *  - Rewrite `pgk.bin[*]`
+   */
+
   exec(`git add node_modules -f`, {
     cwd: gitTargetDir
   })
