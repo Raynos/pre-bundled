@@ -154,6 +154,8 @@ async function main () {
    *  - Move `node_modules` into `pre-bundled/node_modules`
    *  - Rewrite `pkg.main`
    *  - Rewrite `pgk.bin[*]`
+   *  - Add rewrite flag to pause and allow command runner to manually
+   *     Rewrite any remaining references that need to be fixed.
    */
 
   exec(`git add node_modules -f`, {
