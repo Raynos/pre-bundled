@@ -28,6 +28,7 @@ async function main () {
 
   const moduleToBundle = args._[0]
   const moduleVersion = args._[1]
+  const dryMode = !!args.dry || !!args.dryMode
   if (!moduleToBundle) {
     console.error('Must specify module to bundle')
     console.error('pre-bundled {module}')
@@ -167,17 +168,24 @@ async function main () {
     cwd: gitTargetDir
   })
 
-  console.log('Publishing module')
-  const packOut = exec(`npm publish --force --access public`, {
-    cwd: gitTargetDir
-  })
-  console.log(packOut.toString('utf8'))
+  if (dryMode) {
+    const packOut = exec(`npm pack`, {
+      cwd: gitTargetDir
+    })
+    console.log(packOut.toString('utf8'))
+  } else {
+    console.log('Publishing module')
+    const publishOut = exec(`npm publish --force --access public`, {
+      cwd: gitTargetDir
+    })
+    console.log(publishOut.toString('utf8'))
 
-  console.log(`npm info @pre-bundled/${uriSafeModuleName}`)
-  const info = exec(
-    `npm info @pre-bundled/${uriSafeModuleName}`
-  )
-  console.log(info.toString('utf8'))
+    console.log(`npm info @pre-bundled/${uriSafeModuleName}`)
+    const info = exec(
+      `npm info @pre-bundled/${uriSafeModuleName}`
+    )
+    console.log(info.toString('utf8'))
+  }
 }
 
 if (require.main === module) {
