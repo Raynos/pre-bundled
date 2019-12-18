@@ -12,6 +12,7 @@
   "dependencies": {
     "minimist": "1.2.0",
     "mkdirp": "0.5.1",
+    "noderify": "4.2.0",
     "rimraf": "3.0.0"
   }
 }
