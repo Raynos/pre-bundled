@@ -1,6 +1,6 @@
 {
   "name": "pre-bundled",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "A tool that pre-bundles & republishes dependencies",
   "main": "index.js",
   "scripts": {
