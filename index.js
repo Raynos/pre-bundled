@@ -9,10 +9,7 @@ const fs = require('fs')
 const minimist = require('minimist')
 const mkdirp = require('mkdirp').sync
 const rimraf = require('rimraf').sync
-
-const NODERIFY = path.join(
-  __dirname, 'node_modules', '.bin', 'noderify'
-)
+const replaceRequires = require('replace-requires')
 
 class PreBundler {
   constructor () {
@@ -29,8 +26,8 @@ class PreBundler {
   }
 
   ensureHub () {
-    const whichOut = exec('which hub').toString('utf8')
-    if (whichOut.length === 0) {
+    const hubOut = exec('which hub').toString('utf8')
+    if (hubOut.length === 0) {
       console.error('Requires global installation of hub')
       return process.exit(1)
     }
@@ -84,62 +81,80 @@ class PreBundler {
   }
 
   checkoutCorrectCode (version) {
-    const tagList = exec(`git tag -l`, {
+    let checkoutVersion = version
+    if (this.args.publishSuffix) {
+      checkoutVersion += this.args.publishSuffix
+    }
+
+    console.log()
+    console.log(green(`Switch to branch pre-bundled-${checkoutVersion}`))
+    console.log()
+
+    exec(`git checkout -b pre-bundled-${checkoutVersion}`, {
       cwd: this.gitTargetDir
-    }).toString('utf8')
+    })
 
-    let checkoutTarget = `v${version}`
-    const tagVersions = tagList.split('\n')
+    exec(`git rm -r .`, {
+      cwd: this.gitTargetDir
+    })
+    exec(`git clean -fd`, {
+      cwd: this.gitTargetDir
+    })
+    exec(`git commit -m 'Remove all code for now'`, {
+      cwd: this.gitTargetDir
+    })
 
-    if (tagVersions.includes(version)) {
-      /** Author of module uses weird git tags. */
-      checkoutTarget = version
-    } else if (!tagVersions.includes(`v${version}`)) {
-      /**
-       * The author of ${module} does not tag their git tags ...
-       */
-      const gitLog = exec(
-        `git log --no-decorate --patch package.json`, {
-          cwd: this.gitTargetDir
-        }
-      ).toString('utf8')
+    exec(`npm pack ${this.moduleToBundle}@${version}`, {
+      cwd: this.gitTargetDir
+    })
 
-      const lines = gitLog.split('\n')
-      const lineIndex = lines.findIndex((line) => {
-        return line.includes(`+  "version": "${version}",`)
-      })
-      console.log('found lineIndex', lineIndex)
+    exec(`tar -zxvf ./${this.moduleToBundle}-${version}.tgz --strip 1`, {
+      cwd: this.gitTargetDir
+    })
+    exec(`rm ./${this.moduleToBundle}-${version}.tgz`, {
+      cwd: this.gitTargetDir
+    })
+    exec(`git add .`, {
+      cwd: this.gitTargetDir
+    })
+    exec(`git commit -m 'Add the code from npm tarball manually'`, {
+      cwd: this.gitTargetDir
+    })
+  }
 
-      for (let i = lineIndex; i >= 0; i--) {
-        const logLine = lines[i].trim()
+  getFilesToRewrite (pkg) {
+    const files = exec(`git ls-files`, {
+      cwd: this.gitTargetDir
+    }).toString('utf8').trim().split('\n')
 
-        if (logLine.match(/^commit [0-9a-f]{40}$/)) {
-          const commitSha = logLine.slice(7, logLine.length)
-          checkoutTarget = commitSha
-          break
-        }
+    const jsFiles = []
+    for (const file of files) {
+      if (file.endsWith('.js')) {
+        jsFiles.push(file)
       }
     }
 
-    console.log()
-    console.log(green(`Checking out ${checkoutTarget}`))
-    console.log()
-
-    exec(`git checkout ${checkoutTarget}`, {
-      cwd: this.gitTargetDir
-    })
-
-    if (this.args.publishSuffix) {
-      version += this.args.publishSuffix
+    const binEntries = []
+    if (typeof pkg.bin === 'string') {
+      binEntries.push(pkg.bin)
+    } else if (pkg.bin !== null && typeof pkg.bin === 'object') {
+      for (const k of Object.keys(pkg.bin)) {
+        binEntries.push(pkg.bin[k])
+      }
     }
 
-    console.log()
-    console.log(green(`Switch to branch pre-bundled-${version}`))
-    console.log()
-
-    exec(`git checkout -b pre-bundled-${version}`, {
-      cwd: this.gitTargetDir
-    })
+    for (let binEntry of binEntries) {
+      if (binEntry.startsWith('./')) {
+        binEntry = binEntry.slice(2, binEntry.length)
+      }
+      if (
+        files.includes(binEntry) &&
+        !jsFiles.includes(binEntry)
+      ) {
+        jsFiles.push(binEntry)
+      }
+    }
+    return jsFiles
   }
 
   async main () {
@@ -160,24 +175,16 @@ class PreBundler {
     )
     mkdirp(targetDir)
 
+    this.cloneRepo(targetDir)
+
     let version = this.moduleVersion
     if (!this.moduleVersion) {
-      const packageJSON = fs.readFileSync(
-        path.join(this.gitTargetDir, 'package.json'), 'utf8'
-      )
-      const tempPkg = JSON.parse(packageJSON)
-      version = tempPkg.version
+      const npmVersion = exec(
+        `npm info ${this.moduleToBundle} version --loglevel warn`
+      ).toString('utf8').trim()
+      version = npmVersion
     }
 
-    /**
-     * Bail on checking it out from the source code. its a massive
-     * pain on the dick.
-     *
-     * Just git rm all the fucking files
-     * THen download the tarball from npm
-     * then unpack it in place.
-     * THen check that shit into git.
-     */
     this.checkoutCorrectCode(version)
 
     const packageJSON = fs.readFileSync(
@@ -192,8 +199,10 @@ class PreBundler {
     }
 
     const oldDependencies = pkg.dependencies
+    const oldPeerDependencies = pkg.peerDependencies
     pkg.name = `@pre-bundled/${this.uriSafeModuleName}`
     pkg.dependencies = {}
+    pkg.peerDependencies = {}
 
     if (Object.keys(oldDependencies).length === 0) {
       console.error(`This module ${this.moduleToBundle} has no deps`)
@@ -201,42 +210,96 @@ class PreBundler {
       return process.exit(1)
     }
 
+    const jsFiles = this.getFilesToRewrite(pkg)
+
     console.log()
     console.log(green(`Running npm install ${this.gitTargetDir}`))
     console.log()
+
+    if (oldPeerDependencies) {
+      const packageJSON = fs.readFileSync(
+        path.join(this.gitTargetDir, 'package.json'), 'utf8'
+      )
+      const tempPkg = JSON.parse(packageJSON)
+      for (const k of Object.keys(tempPkg.peerDependencies)) {
+        if (tempPkg.devDependencies && tempPkg.devDependencies[k]) {
+          tempPkg.dependencies[k] = tempPkg.devDependencies[k]
+        } else {
+          tempPkg.dependencies[k] = tempPkg.peerDependencies[k]
+        }
+      }
+      fs.writeFileSync(
+        path.join(this.gitTargetDir, 'package.json'),
+        JSON.stringify(tempPkg, null, 2),
+        'utf8'
+      )
+    }
 
     exec(`npm install --loglevel notice --prod`, {
       cwd: this.gitTargetDir
     })
 
-    console.log()
-    console.log(green(`Bundling the source code`))
-    console.log()
-
     /**
-     * Create a __pre-bundled_node_modules__.js file
-     * Use noderify on it.
+     * @TODO Raynos find all the frigging peer dependencies and
+     * then install them
      */
 
-    // const filesToCommit = []
-    // let main = pkg.main || 'index.js'
-    // pkg.main = renameFileWithPreBundled(main)
-    // this.preBundle(gitTargetDir, pkg, main, pkg.main)
-    // filesToCommit.push(path.join(gitTargetDir, pkg.main))
+    console.log()
+    console.log(green(`Vendoring node_modules`))
+    console.log()
 
-    // if (typeof pkg.bin === 'string') {
-    //   const bin = pkg.bin
-    //   pkg.bin = renameFileWithPreBundled(bin)
-    //   this.preBundle(gitTargetDir, pkg, bin, pkg.bin)
-    //   filesToCommit.push(path.join(gitTargetDir, pkg.bin))
-    // } else if (pkg.bin !== null && typeof pkg.bin === 'object') {
-    //   for (const key of Object.keys(pkg.bin)) {
-    //     const bin = pkg.bin[key]
-    //     pkg.bin[key] = renameFileWithPreBundled(bin)
-    //     this.preBundle(gitTargetDir, pkg, bin, pkg.bin[key])
-    //     filesToCommit.push(path.join(gitTargetDir, pkg.bin[key]))
-    //   }
-    // }
+    mkdirp(path.join(this.gitTargetDir, 'pre-bundled'))
+    exec(`cp -r node_modules pre-bundled/node_modules`, {
+      cwd: this.gitTargetDir
+    })
+    rimraf(path.join(this.gitTargetDir, 'node_modules'))
+
+    exec(`git add pre-bundled`, {
+      cwd: this.gitTargetDir
+    })
+    exec(`git commit -m 'Checking in node_modules'`, {
+      cwd: this.gitTargetDir
+    })
+
+    console.log()
+    console.log(green(`Rewriting require statements`))
+    console.log()
+
+    const dependencyNames = Object.keys(oldDependencies)
+    if (oldPeerDependencies) {
+      dependencyNames.push(...Object.keys(oldPeerDependencies))
+    }
+
+    const preBundleNodeMdls = path.join(
+      this.gitTargetDir, 'pre-bundled', 'node_modules'
+    )
+    const depsOnDisk = fs.readdirSync(preBundleNodeMdls)
+    for (const depOnDisk of depsOnDisk) {
+      if (!dependencyNames.includes(depOnDisk)) {
+        dependencyNames.push(depOnDisk)
+      }
+    }
+
+    for (const file of jsFiles) {
+      const fileName = path.join(this.gitTargetDir, file)
+      const relative = path.relative(
+        path.dirname(fileName), preBundleNodeMdls
+      )
+      const requireRewrites = {}
+      for (const dep of dependencyNames) {
+        let relativeName = path.join(relative, dep)
+        if (!relativeName.startsWith('./') &&
+            !relativeName.startsWith('..')
+        ) {
+          relativeName = './' + relativeName
+        }
+        requireRewrites[dep] = `require("${relativeName}")`
+      }
+
+      let text = fs.readFileSync(fileName, 'utf8')
+      text = replaceRequires(text, requireRewrites)
+      fs.writeFileSync(fileName, text, 'utf8')
+    }
 
     console.log()
     console.log(green(`Commiting the code`))
@@ -269,6 +332,10 @@ class PreBundler {
       cwd: this.gitTargetDir
     })
 
+    this.preparePublish()
+  }
+
+  preparePublish () {
     console.log()
     console.log(green(`Preparing the publish`))
     console.log()
@@ -279,7 +346,6 @@ class PreBundler {
       })
       console.log(packOut.toString('utf8'))
     } else {
-
       console.log()
       console.log(green(`Publishing the module`))
       console.log()
@@ -300,58 +366,6 @@ class PreBundler {
       )
       console.log(info.toString('utf8'))
     }
-  }
-
-  preBundle (gitTargetDir, pkg, source, target) {
-    const sourceFile = path.join(gitTargetDir, source)
-    const outFile = path.join(gitTargetDir, target)
-    const exists = fs.existsSync(sourceFile)
-    if (!exists) {
-      console.log()
-      console.log(green(`Could not find source code; doing fallback`))
-      console.log()
-
-      const scripts = pkg.scripts
-      if (scripts.compile) {
-        console.log()
-        console.log(green(`exec: npm i && npm run compile`))
-        console.log()
-
-        exec('npm install --loglevel notice', {
-          cwd: gitTargetDir
-        })
-        exec('npm run compile', {
-          cwd: gitTargetDir
-        })
-      } else if (scripts.build) {
-        console.log()
-        console.log(green(`exec: npm i && npm run build`))
-        console.log()
-
-        exec('npm install --loglevel notice', {
-          cwd: gitTargetDir
-        })
-        exec('npm run build', {
-          cwd: gitTargetDir
-        })
-      } else {
-        console.log()
-        console.log(green(`exec: npm i && npm test`))
-        console.log()
-
-        exec('npm install --loglevel notice', {
-          cwd: gitTargetDir
-        })
-        exec('npm test', {
-          cwd: gitTargetDir
-        })
-      }
-    }
-
-    mkdirp(path.dirname(outFile))
-    exec(`node ${NODERIFY} ${sourceFile} -o ${outFile}`, {
-      cwd: gitTargetDir
-    })
   }
 }
 
@@ -381,14 +395,4 @@ function printHelp () {
 
 function green (text) {
   return '\u001b[32m' + text + '\u001b[39m'
-}
-
-function renameFileWithPreBundled (fileName) {
-  if (fileName.endsWith('.js')) {
-    fileName = fileName.slice(0, fileName.length - 3)
-    fileName += '__pre-bundled__.js'
-    return fileName
-  }
-
-  return fileName + '__pre-bundled__'
 }
