@@ -312,6 +312,10 @@ class PreBundler {
       cwd: this.gitTargetDir
     })
 
+    if (pkg.files) {
+      pkg.files.push('pre-bundled')
+    }
+
     fs.writeFileSync(
       path.join(this.gitTargetDir, 'package.json'),
       JSON.stringify(pkg, null, 2),
