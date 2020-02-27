@@ -17,7 +17,7 @@ class PreBundler {
 
     this.moduleToBundle = this.args._[0]
     this.uriSafeModuleName = encodeURIComponent(
-      this.moduleToBundle
+      this.moduleToBundle.replace('/', '-').replace('@', '')
     )
     this.moduleVersion = this.args._[1]
     this.dryMode = !!this.args.dry || !!this.args.dryMode
@@ -108,10 +108,12 @@ class PreBundler {
       cwd: this.gitTargetDir
     })
 
-    exec(`tar -zxvf ./${this.moduleToBundle}-${version}.tgz --strip 1`, {
+    const tarName = this.moduleToBundle
+      .replace('/', '-').replace('@', '')
+    exec(`tar -zxvf ./${tarName}-${version}.tgz --strip 1`, {
       cwd: this.gitTargetDir
     })
-    exec(`rm ./${this.moduleToBundle}-${version}.tgz`, {
+    exec(`rm ./${tarName}-${version}.tgz`, {
       cwd: this.gitTargetDir
     })
     exec(`git add .`, {
@@ -198,13 +200,18 @@ class PreBundler {
       version += publishSuffix
     }
 
-    const oldDependencies = pkg.dependencies
+    const oldDependencies = pkg.dependencies || {}
     const oldPeerDependencies = pkg.peerDependencies
     pkg.name = `@pre-bundled/${this.uriSafeModuleName}`
     pkg.dependencies = {}
     pkg.peerDependencies = {}
 
-    if (Object.keys(oldDependencies).length === 0) {
+    if (Object.keys(oldDependencies).length === 0 &&
+      (
+        !oldPeerDependencies ||
+        Object.keys(oldPeerDependencies).length === 0
+      )
+    ) {
       console.error(`This module ${this.moduleToBundle} has no deps`)
       console.error('Like literally dependencies is {}')
       return process.exit(1)
@@ -221,6 +228,7 @@ class PreBundler {
         path.join(this.gitTargetDir, 'package.json'), 'utf8'
       )
       const tempPkg = JSON.parse(packageJSON)
+      tempPkg.dependencies = tempPkg.dependencies || {}
       for (const k of Object.keys(tempPkg.peerDependencies)) {
         if (tempPkg.devDependencies && tempPkg.devDependencies[k]) {
           tempPkg.dependencies[k] = tempPkg.devDependencies[k]
