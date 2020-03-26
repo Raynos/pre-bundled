@@ -10,9 +10,8 @@
   "author": "Raynos",
   "license": "MIT",
   "dependencies": {
-    "minimist": "1.2.0",
-    "mkdirp": "0.5.1",
-    "replace-requires": "1.1.0",
-    "rimraf": "3.0.0"
+    "@pre-bundled/replace-requires": "1.1.0",
+    "@pre-bundled/rimraf": "3.0.0-patch-1",
+    "minimist": "1.2.0"
   }
 }

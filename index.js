@@ -7,18 +7,17 @@ const path = require('path')
 const fs = require('fs')
 
 const minimist = require('minimist')
-const mkdirp = require('mkdirp').sync
-const rimraf = require('rimraf').sync
-const replaceRequires = require('replace-requires')
+const rimraf = require('@pre-bundled/rimraf').sync
+const replaceRequires = require('@pre-bundled/replace-requires')
 
 class PreBundler {
   constructor () {
     this.args = minimist(process.argv.slice(2))
 
     this.moduleToBundle = this.args._[0]
-    this.uriSafeModuleName = encodeURIComponent(
+    this.uriSafeModuleName = this.moduleToBundle ? encodeURIComponent(
       this.moduleToBundle.replace('/', '-').replace('@', '')
-    )
+    ) : null
     this.moduleVersion = this.args._[1]
     this.dryMode = !!this.args.dry || !!this.args.dryMode
 
@@ -175,7 +174,7 @@ class PreBundler {
     const targetDir = path.join(
       os.homedir(), '.config', 'pre-bundled'
     )
-    mkdirp(targetDir)
+    fs.mkdirSync(targetDir, { recursive: true })
 
     this.cloneRepo(targetDir)
 
@@ -256,7 +255,9 @@ class PreBundler {
     console.log(green(`Vendoring node_modules`))
     console.log()
 
-    mkdirp(path.join(this.gitTargetDir, 'pre-bundled'))
+    fs.mkdirSync(path.join(this.gitTargetDir, 'pre-bundled'), {
+      recursive: true
+    })
     exec(`cp -r node_modules pre-bundled/node_modules`, {
       cwd: this.gitTargetDir
     })
