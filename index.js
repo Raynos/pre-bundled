@@ -10,7 +10,8 @@ const fs = require('fs')
 
 const minimist = require('minimist')
 const rimraf = require('@pre-bundled/rimraf').sync
-const replaceRequires = require('@pre-bundled/replace-requires')
+
+const replaceRequires = require('./replace-requires.js')
 
 class PreBundler {
   constructor () {

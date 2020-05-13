@@ -10,8 +10,11 @@
   "author": "Raynos",
   "license": "MIT",
   "dependencies": {
+    "@pre-bundled/detective": "5.2.0-patch-1",
+    "@pre-bundled/has-require": "1.2.2-patch-1",
     "@pre-bundled/replace-requires": "1.1.0",
     "@pre-bundled/rimraf": "3.0.0-patch-1",
-    "minimist": "1.2.0"
+    "minimist": "1.2.0",
+    "patch-text": "1.0.2"
   }
 }
