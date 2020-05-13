@@ -1,12 +1,14 @@
 var detective = require('@pre-bundled/detective')
 var patch = require('patch-text')
 var assert = require('assert')
-var hasRequire = require('@pre-bundled/has-require')
+
+const hasRequireRegex = /require\(['"]([^'"]+)['"]\)/
 
 module.exports = function replaceRequires (code, replacements) {
-  var checker = new hasRequire.Checker(code)
   var ids = Object.keys(replacements)
-  if (!ids.some(checker.has, checker)) return code
+
+  const hasRequire = hasRequireRegex.test(code)
+  if (!hasRequire) return code
 
   const patches = detective
     .find(code, { nodes: true })
