@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 'use strict'
 
+/* eslint-disable quotes */
+
 const exec = require('child_process').execSync
 const os = require('os')
 const path = require('path')
@@ -320,6 +322,30 @@ class PreBundler {
     exec(`git commit -m "Check in pre-bundled @ ${version}"`, {
       cwd: this.gitTargetDir
     })
+
+    if (fs.existsSync(path.join(this.gitTargetDir, '.npmignore'))) {
+      const ignore = fs.readFileSync(
+        path.join(this.gitTargetDir, '.npmignore'), 'utf8'
+      )
+
+      const lines = ignore.split('\n').map(line => line.trim())
+      if (lines.indexOf('node_modules') > -1) {
+        lines.splice(lines.indexOf('node_modules'), 1)
+
+        fs.writeFileSync(
+          path.join(this.gitTargetDir, '.npmignore'),
+          lines.join('\n'),
+          'utf8'
+        )
+
+        exec(`git add .npmignore`, {
+          cwd: this.gitTargetDir
+        })
+        exec(`git commit -m "Rewrite .npmignore @ ${version}"`, {
+          cwd: this.gitTargetDir
+        })
+      }
+    }
 
     if (pkg.files) {
       pkg.files.push('pre-bundled')
